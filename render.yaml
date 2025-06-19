@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: grape-leaf-api
+    env: python
+    buildCommand: ""
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
