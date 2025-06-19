@@ -33,24 +33,23 @@ class_names = [
 
 IMG_SIZE = (64, 64)
 
-# Image preprocessing
 def preprocess_image(file):
+    """Convert uploaded file into normalized array format."""
     try:
         img = Image.open(file).convert("RGB")
         img = img.resize(IMG_SIZE)
         img_array = np.array(img, dtype=np.float32) / 255.0
-        img_array = img_array.reshape((1, 64, 64, 3))  # Make it batch size 1
-        return img_array
+        return img_array.reshape((1, 64, 64, 3))
     except Exception as e:
         raise ValueError(f"Failed to process image: {e}")
 
-# ONNX prediction
 def predict_with_onnx(image_array):
+    """Run ONNX model inference."""
     inputs = {ort_session.get_inputs()[0].name: image_array}
     outputs = ort_session.run(None, inputs)
     return outputs[0]
 
-# Flask app setup
+# Initialize Flask app
 app = Flask(__name__)
 CORS(app)
 
@@ -66,19 +65,15 @@ def get_classes():
 def predict():
     if 'file' not in request.files:
         return jsonify({"error": "No image file provided."}), 400
-
-    file = request.files['file']
     try:
-        processed_image = preprocess_image(file)
+        processed_image = preprocess_image(request.files['file'])
         predictions = predict_with_onnx(processed_image)
         predicted_class = class_names[np.argmax(predictions[0])]
         confidence = float(np.max(predictions[0]))
-
         return jsonify({
             "prediction": predicted_class,
             "confidence": round(confidence, 3)
         })
-
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -116,10 +111,8 @@ def chat():
         )
 
         messages = [{"role": "system", "content": system_prompt}]
-
         if model_output_message:
             messages.append({"role": "user", "content": model_output_message})
-
         if user_message:
             messages.append({"role": "user", "content": user_message})
 
@@ -128,14 +121,11 @@ def chat():
             messages=messages
         )
 
-        assistant_reply = response.choices[0].message.content
-
         return jsonify({
-            "assistant_reply": assistant_reply,
+            "assistant_reply": response.choices[0].message.content,
             "predicted_class": predicted_class,
             "confidence": round(confidence, 3) if confidence is not None else None
         })
-
     except Exception as e:
         return jsonify({"error": f"Groq API call failed: {e}"}), 500
 
