@@ -2,7 +2,7 @@ import os
 import numpy as np
 from flask import Flask, request, jsonify
 from PIL import Image
-import tflite_runtime.interpreter as tflite
+import onnxruntime as ort
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -16,14 +16,9 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Load TFLite model
-MODEL_PATH = "grape_leaf_spot_model.tflite"
-interpreter = tflite.Interpreter(model_path=MODEL_PATH)
-interpreter.allocate_tensors()
-
-# Get input/output details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+# Load ONNX model
+MODEL_PATH = "grape_leaf_spot_model.onnx"
+ort_session = ort.InferenceSession(MODEL_PATH)
 
 # Class labels
 class_names = [
@@ -38,31 +33,30 @@ class_names = [
 
 IMG_SIZE = (64, 64)
 
-# Preprocess image
+# Image preprocessing
 def preprocess_image(file):
     try:
         img = Image.open(file).convert("RGB")
         img = img.resize(IMG_SIZE)
         img_array = np.array(img, dtype=np.float32) / 255.0
-        img_array = img_array.reshape((1, 64, 64, 3))
+        img_array = img_array.reshape((1, 64, 64, 3))  # Make it batch size 1
         return img_array
     except Exception as e:
         raise ValueError(f"Failed to process image: {e}")
 
-# Predict using TFLite model
-def predict_image(image_array):
-    interpreter.set_tensor(input_details[0]['index'], image_array.astype(np.float32))
-    interpreter.invoke()
-    output_data = interpreter.get_tensor(output_details[0]['index'])
-    return output_data
+# ONNX prediction
+def predict_with_onnx(image_array):
+    inputs = {ort_session.get_inputs()[0].name: image_array}
+    outputs = ort_session.run(None, inputs)
+    return outputs[0]
 
-# Initialize Flask app
+# Flask app setup
 app = Flask(__name__)
 CORS(app)
 
 @app.route("/", methods=["GET"])
 def home():
-    return "🍇 Grape Leaf Disease Prediction API running."
+    return "🍇 Grape Leaf Disease Prediction API (ONNX) is running."
 
 @app.route("/classes", methods=["GET"])
 def get_classes():
@@ -76,7 +70,7 @@ def predict():
     file = request.files['file']
     try:
         processed_image = preprocess_image(file)
-        predictions = predict_image(processed_image)
+        predictions = predict_with_onnx(processed_image)
         predicted_class = class_names[np.argmax(predictions[0])]
         confidence = float(np.max(predictions[0]))
 
@@ -100,7 +94,7 @@ def chat():
     if file:
         try:
             processed_image = preprocess_image(file)
-            predictions = predict_image(processed_image)
+            predictions = predict_with_onnx(processed_image)
             predicted_class = class_names[np.argmax(predictions[0])]
             confidence = float(np.max(predictions[0]))
             model_output_message = f"The uploaded grape leaf image was classified as **{predicted_class}**."
@@ -112,7 +106,7 @@ def chat():
             "You are Nebula Vineyard Assistant — a helpful, friendly expert in grape leaf diseases. "
             "Always respond based on the provided model classification of the leaf image. "
             "Never make your own diagnosis. "
-            "You don't see the images only communicate what is predicted by CNN model. "
+            "You don't see the images, only communicate what is predicted by CNN model. "
             "You can only assist with the diseases: "
             "Bacterial_Rot, Black_Measles, Black_Rot, Downey_Mildew, Healthy, Leaf_Blight, Powdery_Mildew. "
             "Explain or give advice for the predicted class. "
